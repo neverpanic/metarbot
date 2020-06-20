@@ -1,0 +1,11 @@
+owners = ["neverpanic"]
+nickname = "metarbot"
+alt_nicks = ["tafbot", "metafbot", "tafmetar", "metar", "metaf", "ratembot"]
+username = "metarbot"
+realname = "METAR bot"
+server = "irc.fau.de"
+port = 6667
+use_tls = false
+encoding = "UTF-8"
+channels = ["#metarbot-test"]
+user_info = "I'm a bot reporting METARs and TAFs"

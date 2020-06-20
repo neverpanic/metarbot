@@ -1,0 +1,24 @@
+[package]
+name = "metarbot"
+version = "0.1.0"
+authors = ["Clemens Lang <neverpanic@gmail.com>"]
+edition = "2018"
+description = "An IRC bot that services METARs and TAFs (weather information for pilots)."
+license = "BSD-2-Clause"
+keywords = ["irc", "aviation", "bot", "weather"]
+default-run = "metarbot"
+
+[badges]
+maintenance = { status = "experimental" }
+
+[dependencies]
+regex = "1"
+lazy_static = "1.4.0"
+tokio = { version = "0.2", features = ["full"] }
+futures = "0.3.5"
+clap = "2.33.1"
+irc = "0.14.0"
+log = "0.4.8"
+pretty_env_logger = "0.4.0"
+failure = "0.1.8"
+reqwest = "0.10.6"
