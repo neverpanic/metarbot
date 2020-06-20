@@ -15,13 +15,14 @@ extern crate reqwest;
 use irc::client::prelude::*;
 use futures::{
     prelude::*,
+    future::FutureExt,
+    future::BoxFuture,
     stream::FuturesUnordered,
     select,
 };
 use regex::Regex;
 use std::time::Duration;
 use std::vec::Vec;
-use std::pin::Pin;
 use std::collections::HashMap;
 use std::error::Error;
 
@@ -57,8 +58,9 @@ enum BotResponse {
     Privmsg(BotPrivmsgResponse),
 }
 
-type BotPinBoxFuture = Pin<Box<dyn Future<Output = Result<BotResponse, Box<dyn Error>>>>>;
-type BotCommand = Box<dyn Fn(String, Vec<String>) -> BotPinBoxFuture>;
+type BotCommandResult = Result<BotResponse, Box<dyn Error>>;
+type BotCommandFutureResult<'a> = BoxFuture<'a, BotCommandResult>;
+type BotCommand = Box<dyn Fn(String, Vec<String>) -> BotCommandFutureResult<'static>>;
 
 static METAR_API_URL: &str = "https://api.met.no/weatherapi/tafmetar/1.0/metar";
 
@@ -69,7 +71,7 @@ lazy_static! {
     static ref REQWEST: reqwest::Client = reqwest::Client::new();
 }
 
-async fn handle_metar(response_target: String, args: Vec<String>) -> Result<BotResponse, Box<dyn Error>> {
+async fn handle_metar(response_target: String, args: Vec<String>) -> BotCommandResult {
     if let Some(airport) = args.get(0) {
         if AIRPORT_RE.is_match(airport) {
             let resp = REQWEST.get(METAR_API_URL)
@@ -105,10 +107,6 @@ async fn handle_metar(response_target: String, args: Vec<String>) -> Result<BotR
     }))
 }
 
-fn handle_metar_async(response_target: String, args: Vec<String>) -> BotPinBoxFuture {
-    Box::pin(handle_metar(response_target, args))
-}
-
 async fn handle_taf(response_target: String, args: Vec<String>) -> Result<BotResponse, Box<dyn Error>> {
     if let Some(airport) = args.get(0) {
         if AIRPORT_RE.is_match(airport) {
@@ -124,19 +122,11 @@ async fn handle_taf(response_target: String, args: Vec<String>) -> Result<BotRes
     }))
 }
 
-fn handle_taf_async(response_target: String, args: Vec<String>) -> BotPinBoxFuture {
-    Box::pin(handle_taf(response_target, args))
-}
-
 async fn handle_quit(_: String, args: Vec<String>) -> Result<BotResponse, Box<dyn Error>> {
     info!("quit {:?}", args);
     Ok(BotResponse::Quit(BotQuitResponse {
         message: Some(args.join(" "))
     }))
-}
-
-fn handle_quit_async(response_target: String, args: Vec<String>) -> BotPinBoxFuture {
-    Box::pin(handle_quit(response_target, args))
 }
 
 async fn handle_join(_: String, args: Vec<String>) -> Result<BotResponse, Box<dyn Error>> {
@@ -147,10 +137,6 @@ async fn handle_join(_: String, args: Vec<String>) -> Result<BotResponse, Box<dy
         }));
     }
     Ok(BotResponse::Ignore)
-}
-
-fn handle_join_async(response_target: String, args: Vec<String>) -> BotPinBoxFuture {
-    Box::pin(handle_join(response_target, args))
 }
 
 async fn handle_part(response_target: String, args: Vec<String>) -> Result<BotResponse, Box<dyn Error>> {
@@ -170,10 +156,6 @@ async fn handle_part(response_target: String, args: Vec<String>) -> Result<BotRe
         channel,
         comment,
     }));
-}
-
-fn handle_part_async(response_target: String, args: Vec<String>) -> BotPinBoxFuture {
-    Box::pin(handle_part(response_target, args))
 }
 
 
@@ -196,6 +178,13 @@ fn handle_response(client: &Client, response: BotResponse) -> irc::error::Result
     }
 }
 
+fn make_boxed<Fut>(func: &'static dyn Fn(String, Vec<String>) -> Fut) -> BotCommand
+    where
+        Fut: Future<Output = BotCommandResult> + FutureExt + Send
+{
+    Box::new(move |response_target, args| func(response_target, args).boxed())
+}
+
 #[tokio::main]
 async fn main() -> Result<(), failure::Error> {
     let args = clap::App::new("metarbot")
@@ -209,11 +198,11 @@ async fn main() -> Result<(), failure::Error> {
     pretty_env_logger::init();
 
     let mut commands : HashMap<&'static str, BotCommand> = HashMap::new();
-    commands.insert("metar", Box::new(handle_metar_async));
-    commands.insert("taf", Box::new(handle_taf_async));
-    commands.insert("quit", Box::new(handle_quit_async));
-    commands.insert("join", Box::new(handle_join_async));
-    commands.insert("part", Box::new(handle_part_async));
+    commands.insert("metar", make_boxed(&handle_metar));
+    commands.insert("taf", make_boxed(&handle_taf));
+    commands.insert("quit", make_boxed(&handle_quit));
+    commands.insert("join", make_boxed(&handle_join));
+    commands.insert("part", make_boxed(&handle_part));
 
     let config = Config::load(args.value_of("config-file").expect("default missing?")).unwrap();
     let leader = config.options.get("leader").map_or("&", String::as_str).to_owned();
