@@ -9,3 +9,7 @@ use_tls = false
 encoding = "UTF-8"
 channels = ["#metarbot-test"]
 user_info = "I'm a bot reporting METARs and TAFs"
+
+[options]
+leader = "&"
+owners = "*!~clemens@*.neverpanic.de"
