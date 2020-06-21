@@ -105,6 +105,8 @@ async fn main() -> Result<(), failure::Error> {
                             }
                         }
                     }
+                } else {
+                    break;
                 }
             },
             result = futures.select_next_some() => {
