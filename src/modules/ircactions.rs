@@ -38,7 +38,7 @@ pub fn mk() -> Vec<Box<dyn BotCommand>> {
  * case, None will be returned, and execution of the command should continue. Otherwise, a suitable
  * error message is returned as a BotCommandResult, which should be bubbled up to the caller.
  */
-fn ensure_owner(command: &str, params: &BotParameters) -> Option<BotCommandResult> {
+fn ensure_owner(command: &str, params: &BotParameters<'_>) -> Option<BotCommandResult> {
     if !is_owner(&params.message.prefix.as_ref().unwrap_or(&client::prelude::Prefix::new_from_str("")), &params.owners) {
         if let Some(source_nickname) = params.message.source_nickname() {
             Some(Ok(BotResponse::Notice(
@@ -59,7 +59,7 @@ impl BotCommand for IrcJoinCommand {
         "join"
     }
 
-    async fn handle(&self, params: BotParameters) -> BotCommandResult {
+    async fn handle(&self, params: BotParameters<'_>) -> BotCommandResult {
         if let Some(botcommand) = ensure_owner(self.trigger(), &params) {
             return botcommand;
         }
@@ -79,7 +79,7 @@ impl BotCommand for IrcPartCommand {
         "part"
     }
 
-    async fn handle(&self, params: BotParameters) -> BotCommandResult {
+    async fn handle(&self, params: BotParameters<'_>) -> BotCommandResult {
         if let Some(botcommand) = ensure_owner(self.trigger(), &params) {
             return botcommand;
         }
@@ -115,7 +115,7 @@ impl BotCommand for IrcQuitCommand {
         "quit"
     }
 
-    async fn handle(&self, params: BotParameters) -> BotCommandResult {
+    async fn handle(&self, params: BotParameters<'_>) -> BotCommandResult {
         if let Some(botcommand) = ensure_owner(self.trigger(), &params) {
             return botcommand;
         }

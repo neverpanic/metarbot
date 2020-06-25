@@ -64,8 +64,8 @@ async fn main() -> Result<(), failure::Error> {
     pretty_env_logger::init();
 
     let config = Config::load(args.value_of("config-file").expect("default missing?")).unwrap();
-    let leader = config.options.get("leader").map_or("&", String::as_str).to_owned();
-    let owners: Vec<Prefix> = config.options.get("owners").unwrap_or(&"".to_string()).split(";").map(Prefix::new_from_str).collect();
+    let leader = config.get_option("leader").unwrap_or("&").to_owned();
+    let owners: Vec<Prefix> = config.get_option("owners").unwrap_or(&"".to_string()).split(";").map(Prefix::new_from_str).collect();
 
     let mut commands : HashMap<&'static str, Box<dyn BotCommand>> = HashMap::new();
     for module in modules::ALL {
@@ -74,7 +74,7 @@ async fn main() -> Result<(), failure::Error> {
         }
     }
 
-    let mut client = Client::from_config(config).await?;
+    let mut client = Client::from_config(config.clone()).await?;
     client.identify()?;
 
     let mut stream = client.stream()?;
@@ -98,9 +98,10 @@ async fn main() -> Result<(), failure::Error> {
                             if let Some(command) = commands.get(cmd.to_lowercase().as_str()) {
                                 futures.push(command.handle(BotParameters {
                                     message: message,
-                                    leader: if leader_required { leader.to_string() } else { "".to_string() },
-                                    owners: owners.to_vec(),
+                                    leader: if leader_required { &leader } else { "" },
+                                    owners: &owners,
                                     args: args.to_vec(),
+                                    options: &config.options,
                                 }).fuse());
                             }
                         }

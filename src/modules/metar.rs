@@ -18,8 +18,9 @@ use crate::{
     BotResponse,
 };
 
-static METAR_API_URL: &str = "https://api.met.no/weatherapi/tafmetar/1.0/metar";
-static TAF_API_URL: &str = "https://api.met.no/weatherapi/tafmetar/1.0/taf";
+static METAR_API_URL: &str = "https://avwx.rest/api/metar/";
+static TAF_API_URL: &str = "https://avwx.rest/api/taf/";
+
 lazy_static! {
     static ref AIRPORT_RE: regex::Regex = regex::Regex::new(r"^(?i)[a-z0-9]{4}$").unwrap();
     static ref REQWEST: reqwest::Client = reqwest::Client::new();
@@ -55,34 +56,41 @@ impl fmt::Display for WeatherType {
 
 #[derive(Debug)]
 enum MetarError {
-    EmptyResponse,
     NonSuccessResponse(reqwest::StatusCode),
+    NoData(WeatherType, String),
     ReqwestError(reqwest::Error),
 }
 
 impl fmt::Display for MetarError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            MetarError::EmptyResponse =>
-                write!(f, "Received empty response"),
             MetarError::NonSuccessResponse(statuscode) =>
                 write!(f, "{}", statuscode),
+            MetarError::NoData(type_, airport) =>
+                write!(f, "{} is not reporting {}s",
+                    airport,
+                    type_.to_string().to_lowercase()),
             MetarError::ReqwestError(err) =>
                 write!(f, "ReqwestError: {}", err),
         }
     }
 }
 
-async fn download(type_: WeatherType, airport: &str) -> Result<String, MetarError> {
+#[derive(Deserialize)]
+struct TafMetarJson {
+    raw: String,
+}
+
+async fn download(type_: WeatherType, airport: &str, apikey: &str) -> Result<String, MetarError> {
     let url = match type_ {
         WeatherType::METAR => METAR_API_URL,
         WeatherType::TAF => TAF_API_URL,
     };
 
-    let result = REQWEST.get(url)
-        .header("Accept", "text/plain")
+    let result = REQWEST.get(&[url, airport].concat())
+        .header("Accept", "application/json")
+        .header("Authorization", ["Bearer", apikey].join(" "))
         .timeout(time::Duration::from_secs(5))
-        .query(&[("icao", airport)])
         .send()
         .await;
 
@@ -92,33 +100,33 @@ async fn download(type_: WeatherType, airport: &str) -> Result<String, MetarErro
         Ok(response) =>
             if !response.status().is_success() {
                 Err(MetarError::NonSuccessResponse(response.status()))
+            } else if response.status() == reqwest::StatusCode::NO_CONTENT {
+                Err(MetarError::NoData(type_, airport.to_string()))
             } else {
-                match response.text().await {
+                match response.json::<TafMetarJson>().await {
                     Err(err) =>
                         Err(MetarError::ReqwestError(err)),
-                    Ok(string) =>
-                        match string.lines().rfind(|item| !item.trim().is_empty()) {
-                            None =>
-                                Err(MetarError::EmptyResponse),
-                            Some(metar) =>
-                                Ok(metar.to_string()),
-                        },
+                    Ok(data) =>
+                        Ok(data.raw),
                 }
             },
     }
 }
 
-async fn handle(type_: WeatherType, params: BotParameters) -> BotCommandResult {
+async fn handle(type_: WeatherType, params: BotParameters<'_>) -> BotCommandResult {
     let response_target = params.message
         .response_target()
         .ok_or(BotError::NoResponseTarget)?
         .to_string();
 
+    let apikey = params.options.get("avwx_apikey")
+        .ok_or(BotError::Unconfigured("avwx_apikey not set"))?;
+
     if let Some(airport) = params.args.get(0) {
         if AIRPORT_RE.is_match(airport) {
             Ok(BotResponse::Privmsg(
                 response_target,
-                match download(type_, airport).await {
+                match download(type_, airport, apikey).await {
                     Ok(metar) =>
                         metar,
                     Err(err) =>
@@ -145,7 +153,7 @@ impl BotCommand for MetarCommand {
         "metar"
     }
 
-    async fn handle(&self, params: BotParameters) -> BotCommandResult {
+    async fn handle(&self, params: BotParameters<'_>) -> BotCommandResult {
         handle(WeatherType::METAR, params).await
     }
 }
@@ -156,7 +164,7 @@ impl BotCommand for TafCommand {
         "taf"
     }
 
-    async fn handle(&self, params: BotParameters) -> BotCommandResult {
+    async fn handle(&self, params: BotParameters<'_>) -> BotCommandResult {
         handle(WeatherType::TAF, params).await
     }
 }

@@ -9,9 +9,11 @@ extern crate futures;
 extern crate irc;
 extern crate pretty_env_logger;
 
-#[macro_use] extern crate log;
 #[macro_use] extern crate lazy_static;
+#[macro_use] extern crate log;
+#[macro_use] extern crate serde;
 
+use std::collections::HashMap;
 use std::error;
 use std::fmt;
 use std::result::Result;
@@ -35,6 +37,9 @@ pub enum BotError {
 
     /** The bot has been asked to leave the current channel outside of a channel. */
     NoChannelToPart,
+
+    /** A required configuration option is not set for the module. */
+    Unconfigured(&'static str),
 }
 
 /// Implementation of the Display trait for BotError, so it can be converted to a string.
@@ -45,6 +50,8 @@ impl fmt::Display for BotError {
                 write!(f, "Ignoring message since no response target is set"),
             BotError::NoChannelToPart =>
                 write!(f, "Requested to part the current channel outside of a channel"),
+            BotError::Unconfigured(message) =>
+                write!(f, "A required configuration option is missing: {}", message),
         }
     }
 }
@@ -58,6 +65,7 @@ impl error::Error for BotError {
         match *self {
             BotError::NoResponseTarget => None,
             BotError::NoChannelToPart => None,
+            BotError::Unconfigured(_) => None,
         }
     }
 }
@@ -106,7 +114,7 @@ pub enum BotResponse {
  * Parameters passed to a module that implements a command whenever it is being invoked.
  */
 #[derive(Debug)]
-pub struct BotParameters {
+pub struct BotParameters<'a> {
     /**
      * The received IRC message that triggered the module
      */
@@ -117,7 +125,7 @@ pub struct BotParameters {
      * character when the message was written in a channel, and an empty string when it was written
      * in a query.
      */
-    pub leader: String,
+    pub leader: &'a str,
 
     /**
      * A list of IRC prefixes (i.e. nick, username, hostname tuples) that are considered owners of
@@ -125,12 +133,17 @@ pub struct BotParameters {
      * the user invoking a privileged command. Note that empty strings will implicitly match
      * everything, unless all three parts are empty, in which case the entry is ignored.
      */
-    pub owners: Vec<client::prelude::Prefix>,
+    pub owners: &'a Vec<client::prelude::Prefix>,
 
     /**
      * A list of arguments given to the command, split at whitespaces.
      */
     pub args: Vec<String>,
+
+    /**
+     * A map of additional options stored in the configuration.
+     */
+    pub options: &'a HashMap<String, String>,
 }
 
 /**
@@ -162,5 +175,5 @@ pub trait BotCommand {
     /**
      * Handler for this bot command, will be invoked when the trigger word has been seen.
      */
-    async fn handle(&self, params: BotParameters) -> BotCommandResult;
+    async fn handle(&self, params: BotParameters<'_>) -> BotCommandResult;
 }

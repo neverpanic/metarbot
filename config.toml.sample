@@ -13,3 +13,4 @@ user_info = "I'm a bot reporting METARs and TAFs"
 [options]
 leader = "&"
 owners = "*!~clemens@*.neverpanic.de"
+avwx_apikey = "INVALID"
