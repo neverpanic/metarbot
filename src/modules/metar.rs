@@ -18,6 +18,7 @@ use crate::{
     BotResponse,
 };
 
+static STATION_API_URL: &str = "https://avwx.rest/api/station/";
 static METAR_API_URL: &str = "https://avwx.rest/api/metar/";
 static TAF_API_URL: &str = "https://avwx.rest/api/taf/";
 
@@ -57,7 +58,7 @@ impl fmt::Display for WeatherType {
 #[derive(Debug)]
 enum MetarError {
     NonSuccessResponse(reqwest::StatusCode),
-    NoData(WeatherType, String),
+    NoData(String, String),
     ReqwestError(reqwest::Error),
 }
 
@@ -66,10 +67,8 @@ impl fmt::Display for MetarError {
         match self {
             MetarError::NonSuccessResponse(statuscode) =>
                 write!(f, "{}", statuscode),
-            MetarError::NoData(type_, airport) =>
-                write!(f, "{} is not reporting {}s",
-                    airport,
-                    type_.to_string().to_lowercase()),
+            MetarError::NoData(icao, name) =>
+                write!(f, "{} ({}) is not reporting weather", icao, name),
             MetarError::ReqwestError(err) =>
                 write!(f, "ReqwestError: {}", err),
         }
@@ -81,7 +80,44 @@ struct TafMetarJson {
     raw: String,
 }
 
-async fn download(type_: WeatherType, airport: &str, apikey: &str) -> Result<String, MetarError> {
+#[derive(Deserialize)]
+struct Station {
+    name: String,
+    icao: String,
+    reporting: bool,
+}
+
+async fn info(airport: &str, apikey: &str) -> Result<Station, MetarError> {
+    let result = REQWEST.get(&[STATION_API_URL, airport].concat())
+        .header("Accept", "application/json")
+        .header("Authorization", ["Bearer", apikey].join(" "))
+        .timeout(time::Duration::from_secs(5))
+        .send()
+        .await;
+
+    match result {
+        Err(err) =>
+            Err(MetarError::ReqwestError(err)),
+        Ok(response) =>
+            if !response.status().is_success() {
+                Err(MetarError::NonSuccessResponse(response.status()))
+            } else {
+                match response.json::<Station>().await {
+                    Err(err) =>
+                        Err(MetarError::ReqwestError(err)),
+                    Ok(station) =>
+                        Ok(station),
+                }
+            },
+    }
+}
+
+async fn weather(type_: WeatherType, airport: &str, apikey: &str) -> Result<String, MetarError> {
+    let info = info(airport, apikey).await?;
+    if !info.reporting {
+        return Err(MetarError::NoData(info.icao, info.name));
+    }
+
     let url = match type_ {
         WeatherType::METAR => METAR_API_URL,
         WeatherType::TAF => TAF_API_URL,
@@ -101,7 +137,7 @@ async fn download(type_: WeatherType, airport: &str, apikey: &str) -> Result<Str
             if !response.status().is_success() {
                 Err(MetarError::NonSuccessResponse(response.status()))
             } else if response.status() == reqwest::StatusCode::NO_CONTENT {
-                Err(MetarError::NoData(type_, airport.to_string()))
+                Err(MetarError::NoData(info.icao, info.name))
             } else {
                 match response.json::<TafMetarJson>().await {
                     Err(err) =>
@@ -126,7 +162,7 @@ async fn handle(type_: WeatherType, params: BotParameters<'_>) -> BotCommandResu
         if AIRPORT_RE.is_match(airport) {
             Ok(BotResponse::Privmsg(
                 response_target,
-                match download(type_, airport, apikey).await {
+                match weather(type_, airport, apikey).await {
                     Ok(metar) =>
                         metar,
                     Err(err) =>
