@@ -2,7 +2,7 @@
 
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
-#![recursion_limit="256"]
+#![recursion_limit="512"]
 
 extern crate clap;
 extern crate futures;
@@ -33,6 +33,7 @@ use metarbot::{
     util,
 };
 
+static EMPTY_LEADERS: Vec<char> = vec![];
 
 fn handle_response(client: &Client, response: BotResponse) -> irc::error::Result<()> {
     match response {
@@ -64,7 +65,7 @@ async fn main() -> Result<(), failure::Error> {
     pretty_env_logger::init();
 
     let config = Config::load(args.value_of("config-file").expect("default missing?")).unwrap();
-    let leader = config.get_option("leader").unwrap_or("&").to_owned();
+    let leaders: Vec<char> = config.get_option("leaders").unwrap_or("&").chars().collect();
     let owners: Vec<Prefix> = config.get_option("owners").unwrap_or(&"".to_string()).split(";").map(Prefix::new_from_str).collect();
 
     let mut commands : HashMap<&'static str, Box<dyn BotCommand>> = HashMap::new();
@@ -85,20 +86,25 @@ async fn main() -> Result<(), failure::Error> {
             maybe_message = stream.next() => {
                 if let Some(message) = maybe_message.transpose()? {
                     if let Command::PRIVMSG(ref target, ref text) = message.command {
+                        let mut leader: Option<char> = None;
                         let leader_required = util::is_public(target);
-                        if leader_required && !text.starts_with(&leader) {
-                            continue
+                        if leader_required {
+                            let first_char = text.chars().next();
+                            if first_char.is_none() || !leaders.contains(&first_char.unwrap()) {
+                                continue
+                            }
+                            leader = first_char;
                         }
-                        let tokens : Vec<String> = match leader_required {
-                            true => text.trim_start_matches(&leader),
-                            false => text
+                        let tokens : Vec<String> = match leader {
+                            None => text,
+                            Some(first_char) => text.trim_start_matches(first_char),
                         }.split_whitespace().map(String::from).collect();
 
                         if let Some((ref cmd, ref args)) = tokens.split_first() {
                             if let Some(command) = commands.get(cmd.to_lowercase().as_str()) {
                                 futures.push(command.handle(BotParameters {
                                     message: message,
-                                    leader: if leader_required { &leader } else { "" },
+                                    leaders: if leader_required { &leaders } else { &EMPTY_LEADERS },
                                     owners: &owners,
                                     args: args.to_vec(),
                                     options: &config.options,

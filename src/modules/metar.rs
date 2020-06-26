@@ -177,7 +177,7 @@ async fn handle(type_: WeatherType, params: BotParameters<'_>) -> BotCommandResu
         Ok(BotResponse::Privmsg(
             response_target,
             format!("Usage: {}{} <4-letter ICAO airport code>",
-                params.leader,
+                params.leaders.get(0).map_or("".to_string(), char::to_string),
                 type_.to_string().to_lowercase()),
         ))
     }

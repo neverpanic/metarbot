@@ -11,6 +11,6 @@ channels = ["#metarbot-test"]
 user_info = "I'm a bot reporting METARs and TAFs"
 
 [options]
-leader = "&"
+leaders = "&"
 owners = "*!~clemens@*.neverpanic.de"
 avwx_apikey = "INVALID"

@@ -121,11 +121,11 @@ pub struct BotParameters<'a> {
     pub message: irc::proto::message::Message,
 
     /**
-     * The leader character that was used in this context to trigger the bot. Usually a single
-     * character when the message was written in a channel, and an empty string when it was written
-     * in a query.
+     * A list of leader characters that can be used in this context to trigger the bot. Usually an
+     * empty vector when the message was written in a query. Otherwise, a non-empty list of trigger
+     * characters, where the first character should be considered the "main" leader.
      */
-    pub leader: &'a str,
+    pub leaders: &'a Vec<char>,
 
     /**
      * A list of IRC prefixes (i.e. nick, username, hostname tuples) that are considered owners of
